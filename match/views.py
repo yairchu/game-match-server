@@ -57,9 +57,22 @@ def register(request, game, ip, port):
         player.save()
     return HttpResponse(phrase)
 
+def connect(request, game, src_id, dst_id):
+    thres = datetime.now() - fresh
+    src = get_object_or_404(models.Player, game=game, player_id=src_id, when__gt=thres)
+    dst = get_object_or_404(models.Player, game=game, player_id=dst_id, when__gt=thres)
+    assert dst.connected_to is None
+    src.connected_to = dst
+    src.save()
+    return lookup(request, game, dst_id)
+
 def lookup(request, game, player_id):
-    player = get_object_or_404(
+    thres = datetime.now() - fresh
+    host_player = get_object_or_404(
         models.Player,
         game=game, player_id=player_id,
-        when__gt=datetime.now() - fresh)
-    return HttpResponse('%s:%d'%(player.ip_address, player.port))
+        when__gt=thres)
+    res = ['%s:%d'%(host_player.ip_address, host_player.port)]
+    for other in models.Player.objects.filter(game=game, connected_to__id=host_player.id):
+        res.append('%s:%d'%(other.ip_address, other.port))
+    return HttpResponse(' '.join(res))
