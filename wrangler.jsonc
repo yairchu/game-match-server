@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "game-match-server",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-06-16",
+  "kv_namespaces": [
+    {
+      "binding": "MATCHES",
+      "id": "replace-with-production-kv-namespace-id",
+      "preview_id": "replace-with-preview-kv-namespace-id"
+    }
+  ]
+}
