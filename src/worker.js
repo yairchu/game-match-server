@@ -18,6 +18,10 @@ ever evil exam exit face fact fade fail fame farm fast fate fear feel fiat film`
 const TTL_SECONDS = 60 * 60;
 
 const text = (body, status = 200) => new Response(body, { status });
+const json = (body, status = 200) => new Response(JSON.stringify(body), {
+  status,
+  headers: { "content-type": "application/json" },
+});
 const keyFor = (game, playerId) => `player:${game}:${playerId}`;
 
 function parsePath(url) {
@@ -46,10 +50,18 @@ async function putPlayer(env, player) {
 }
 
 async function register(env, game, ip, port) {
+  return registerPlayer(env, game, ip, port, [`${ip}:${port}`]);
+}
+
+async function register2(env, game, publicIp, port, localIp) {
+  return registerPlayer(env, game, publicIp, port, [`${publicIp}:${port}`, `${localIp}:${port}`]);
+}
+
+async function registerPlayer(env, game, ip, port, addresses) {
   for (let i = 0; i < 100; i += 1) {
     const id = phrase();
     if (await getPlayer(env, game, id)) continue;
-    await putPlayer(env, { game, id, ip, port, connectedTo: null });
+    await putPlayer(env, { game, id, ip, port, addresses, connectedTo: null });
     return text(id);
   }
   return text("Could not allocate player id", 503);
@@ -63,6 +75,16 @@ async function connect(env, game, srcId, dstId) {
 
   await putPlayer(env, { ...src, connectedTo: dst.id });
   return lookup(env, game, dst.id);
+}
+
+async function connect2(env, game, srcId, dstId) {
+  const src = await getPlayer(env, game, srcId);
+  const dst = await getPlayer(env, game, dstId);
+  if (!src || !dst) return text("Not Found", 404);
+  if (dst.connectedTo !== null) return text("AssertionError", 500);
+
+  await putPlayer(env, { ...src, connectedTo: dst.id });
+  return lookup2(env, game, dst.id);
 }
 
 async function lookup(env, game, playerId) {
@@ -83,8 +105,30 @@ async function lookup(env, game, playerId) {
   return text(peers.join(" "));
 }
 
+async function lookup2(env, game, playerId) {
+  const host = await getPlayer(env, game, playerId);
+  if (!host) return text("Not Found", 404);
+
+  const peers = [addressesFor(host)];
+  let cursor;
+  do {
+    const page = await env.MATCHES.list({ prefix: `player:${game}:`, cursor });
+    cursor = page.cursor;
+    for (const { name } of page.keys) {
+      const player = await env.MATCHES.get(name, { type: "json" });
+      if (player?.connectedTo === host.id) peers.push(addressesFor(player));
+    }
+  } while (cursor);
+  // ponytail: prefix scan is fine for small rooms; add a reverse index if lookup latency matters.
+  return json(peers);
+}
+
+function addressesFor(player) {
+  return player.addresses ?? [`${player.ip}:${player.port}`];
+}
+
 export async function handleRequest(request, env) {
-  const [action, game, a, b] = parsePath(request.url);
+  const [action, game, a, b, c] = parsePath(request.url);
   if (request.method !== "GET") return text("Method Not Allowed", 405);
 
   if (action === undefined) return text("A matching server for peer-to-peer games");
@@ -92,8 +136,14 @@ export async function handleRequest(request, env) {
     const port = parsePort(b);
     return port === null ? text("Not Found", 404) : register(env, game, a, port);
   }
+  if (action === "register2" && game && a && b) {
+    const port = parsePort(b);
+    return port === null || !c ? text("Not Found", 404) : register2(env, game, a, port, c);
+  }
   if (action === "connect" && game && a && b) return connect(env, game, a, b);
+  if (action === "connect2" && game && a && b) return connect2(env, game, a, b);
   if (action === "lookup" && game && a) return lookup(env, game, a);
+  if (action === "lookup2" && game && a) return lookup2(env, game, a);
   return text("Not Found", 404);
 }
 
