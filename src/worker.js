@@ -39,6 +39,19 @@ function parsePort(value) {
   return port;
 }
 
+function parseAddr(value) {
+  if (value.startsWith("[")) {
+    const [host, portStr] = value.slice(1).split("]:");
+    const port = parsePort(portStr);
+    return port === null ? null : [host, port];
+  }
+  const lastColon = value.lastIndexOf(":");
+  if (lastColon < 0) return null;
+  const host = value.slice(0, lastColon);
+  const port = parsePort(value.slice(lastColon + 1));
+  return port === null ? null : [host, port];
+}
+
 async function getPlayer(env, game, playerId) {
   return env.MATCHES.get(keyFor(game, playerId), { type: "json" });
 }
@@ -55,6 +68,21 @@ async function register(env, game, ip, port) {
 
 async function register2(env, game, publicIp, port, localIp) {
   return registerPlayer(env, game, publicIp, port, [`${publicIp}:${port}`, `${localIp}:${port}`]);
+}
+
+async function register3(env, game, addressesJson) {
+  let addresses;
+  try {
+    addresses = JSON.parse(addressesJson);
+  } catch {
+    return text("Not Found", 404);
+  }
+  if (!Array.isArray(addresses) || addresses.length === 0 || !addresses.every((value) => typeof value === "string" && parseAddr(value))) {
+    return text("Not Found", 404);
+  }
+  const first = parseAddr(addresses[0]);
+  const [ip, port] = first;
+  return registerPlayer(env, game, ip, port, addresses);
 }
 
 async function registerPlayer(env, game, ip, port, addresses) {
@@ -140,6 +168,7 @@ export async function handleRequest(request, env) {
     const port = parsePort(b);
     return port === null || !c ? text("Not Found", 404) : register2(env, game, a, port, c);
   }
+  if (action === "register3" && game && a) return register3(env, game, a);
   if (action === "connect" && game && a && b) return connect(env, game, a, b);
   if (action === "connect2" && game && a && b) return connect2(env, game, a, b);
   if (action === "lookup" && game && a) return lookup(env, game, a);

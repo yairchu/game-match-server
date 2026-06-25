@@ -68,6 +68,45 @@ test("register2 and lookup2 return grouped candidate addresses", async () => {
   );
 });
 
+test("register3 records work with lookup2 and connect2", async () => {
+  const env = { MATCHES: new FakeKV() };
+
+  const host = await (
+    await handleRequest(
+      request('/register3/chess/%5B%22203.0.113.1%3A1234%22%2C%22192.168.1.10%3A4321%22%5D/'),
+      env,
+    )
+  ).text();
+  const peer = await (
+    await handleRequest(
+      request('/register3/chess/%5B%22203.0.113.2%3A5678%22%2C%22192.168.1.20%3A8765%22%5D/'),
+      env,
+    )
+  ).text();
+
+  assert.deepEqual(
+    await (await handleRequest(request(`/lookup2/chess/${encodeURIComponent(host)}/`), env)).json(),
+    [["203.0.113.1:1234", "192.168.1.10:4321"]],
+  );
+
+  const connected = await (
+    await handleRequest(request(`/connect2/chess/${encodeURIComponent(peer)}/${encodeURIComponent(host)}/`), env)
+  ).json();
+  assert.deepEqual(connected, [
+    ["203.0.113.1:1234", "192.168.1.10:4321"],
+    ["203.0.113.2:5678", "192.168.1.20:8765"],
+  ]);
+});
+
+test("register3 rejects malformed candidates after the first", async () => {
+  const response = await handleRequest(
+    request('/register3/chess/%5B%22203.0.113.1%3A1234%22%2C%22not-an-address%22%5D/'),
+    { MATCHES: new FakeKV() },
+  );
+
+  assert.equal(response.status, 404);
+});
+
 test("lookup2 falls back to old player records", async () => {
   const env = { MATCHES: new FakeKV() };
 
